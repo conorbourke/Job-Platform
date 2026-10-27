@@ -9,9 +9,11 @@ import type { RecommendedJob } from "@/lib/types";
 export function RecommendedClient({
   jobs,
   sourcesConfigured,
+  matching,
 }: {
   jobs: RecommendedJob[];
   sourcesConfigured: boolean;
+  matching: { keywords: string[]; locations: string[]; sourceDomains: string[] };
 }) {
   const router = useRouter();
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -53,7 +55,7 @@ export function RecommendedClient({
     if (json.inserted === 0) {
       if (json.fetched === 0) {
         setNotice(
-          `${counts} No postings came back from the job boards just now — LinkedIn/Indeed often block automated access from servers. Try again, or add the Adzuna/Reed API keys for a reliable source.`
+          `${counts} No postings came back just now — try again in a few minutes.`
         );
       } else if ((json.scored ?? 0) === 0) {
         setNotice(
@@ -78,10 +80,10 @@ export function RecommendedClient({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Recommended</h1>
           <p className="mt-1 text-sm text-neutral-500">
-            Fresh postings pulled daily from The Muse, Remotive, Arbeitnow and
-            (where reachable) LinkedIn, Indeed, jobs.ie and NIJobfinder, matched
-            against your CV and the roles you&apos;ve applied for. Add the good
-            ones to New Jobs, or dismiss the rest.
+            Checked once a day. Similar roles to the ones you&apos;ve applied
+            for, searched on the sites you applied through plus the wider job
+            boards, and matched against your CV. Add the good ones to New Jobs,
+            or dismiss the rest.
           </p>
         </div>
         <button
@@ -96,6 +98,31 @@ export function RecommendedClient({
       {notice && (
         <p className="rounded-lg bg-sky-50 px-4 py-3 text-sm text-sky-800">{notice}</p>
       )}
+
+      {/* What the run is matching on — all derived from the jobs applied for. */}
+      <div className="rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm">
+        <p className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
+          Matching on
+        </p>
+        <dl className="mt-2 grid gap-2 sm:grid-cols-3">
+          <div>
+            <dt className="text-xs text-neutral-500">Roles</dt>
+            <dd className="text-neutral-800">{matching.keywords.join(" · ") || "—"}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-neutral-500">Locations</dt>
+            <dd className="text-neutral-800">{matching.locations.join(" · ") || "—"}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-neutral-500">Sites you&apos;ve applied through</dt>
+            <dd className="text-neutral-800">
+              {matching.sourceDomains.length
+                ? matching.sourceDomains.join(" · ")
+                : "None yet — apply to a job with its URL saved and it'll be searched here"}
+            </dd>
+          </div>
+        </dl>
+      </div>
 
       {!sourcesConfigured && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">

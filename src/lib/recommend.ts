@@ -8,6 +8,7 @@ import {
 } from "./jobsources";
 import { fetchScrapeSources } from "./scrapesources";
 import { fetchFreeApiSources } from "./apisources";
+import { fetchWebSearchSources } from "./websearchsources";
 import {
   buildCandidateProfile,
   scoreJobs,
@@ -32,6 +33,7 @@ export interface RecommendRunResult {
 
 const DEFAULT_LOCATIONS = ["Dublin", "Belfast", "London"];
 const MAX_KEYWORDS = 5;
+const MAX_DOMAINS = 4; // applied-through sites searched per run (each is a paid web search)
 const SCORE_CHUNK = 12;
 const MAX_SCORE = 60; // cap postings scored per run (cost + time budget)
 const MAX_INSERT = 50;
@@ -40,8 +42,23 @@ function norm(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
-/** Build the source query from the user's history + master CV. */
-async function deriveQuery(
+/** "www.irishjobs.ie/jobs/123" -> "irishjobs.ie"; null if not a URL. */
+function hostnameOf(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).hostname.replace(/^www\./, "").toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build the source query from the user's history + master CV: the roles they
+ * applied for become keywords, their locations become locations, and the sites
+ * their applied jobs were posted on become the sources to search. Exported so
+ * the Recommended tab can show the user what it's matching on.
+ */
+export async function deriveQuery(
   supabase: SupabaseClient,
   userId: string
 ): Promise<SourceQuery> {
@@ -54,7 +71,7 @@ async function deriveQuery(
       .maybeSingle(),
     supabase
       .from("applications")
-      .select("job_title, location")
+      .select("job_title, location, job_url")
       .eq("user_id", userId)
       .neq("status", "draft"),
   ]);
@@ -94,10 +111,22 @@ async function deriveQuery(
   }
   const locations = locSet.size ? Array.from(locSet).slice(0, 3) : DEFAULT_LOCATIONS;
 
+  // Sources: the sites the applied jobs were actually posted on, most-used first.
+  const domainCount = new Map<string, number>();
+  for (const a of apps ?? []) {
+    const d = hostnameOf(a.job_url);
+    if (d) domainCount.set(d, (domainCount.get(d) ?? 0) + 1);
+  }
+  const sourceDomains = Array.from(domainCount.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([d]) => d)
+    .slice(0, MAX_DOMAINS);
+
   return {
     keywords: keywords.length ? keywords : ["operations manager"],
     locations,
     perQuery: 20,
+    sourceDomains,
   };
 }
 
@@ -111,11 +140,13 @@ export async function runRecommendations(
 
   const query = await deriveQuery(supabase, userId);
 
-  // Three source groups in parallel, then dedupe across everything:
-  //  - keyed APIs (Adzuna/Reed)         — reliable, need signup
-  //  - keyless APIs (Muse/Remotive/…)   — reliable, no signup
-  //  - HTML scrape (LinkedIn/Indeed/…)  — best-effort, often blocked
-  const [apiJobs, freeJobs, scrapeJobs] = await Promise.all([
+  // Four source groups in parallel, then dedupe across everything:
+  //  - applied-through sites (web search) — the boards the user actually uses
+  //  - keyed APIs (Adzuna/Reed)           — reliable, need signup
+  //  - keyless APIs (Muse/Remotive/…)     — reliable, no signup
+  //  - HTML scrape (LinkedIn/jobs.ie)     — best-effort
+  const [siteJobs, apiJobs, freeJobs, scrapeJobs] = await Promise.all([
+    fetchWebSearchSources(supabase, userId, query),
     fetchAllSources(query),
     fetchFreeApiSources(query),
     fetchScrapeSources(supabase, userId, query),
@@ -123,7 +154,7 @@ export async function runRecommendations(
   const seenSource = new Set<string>();
   const raw: RawJob[] = [];
   const bySource: Record<string, number> = {};
-  for (const j of [...apiJobs, ...freeJobs, ...scrapeJobs]) {
+  for (const j of [...siteJobs, ...apiJobs, ...freeJobs, ...scrapeJobs]) {
     const key = `${j.source}:${j.external_id}`;
     if (seenSource.has(key)) continue;
     seenSource.add(key);

@@ -26,6 +26,7 @@ export interface SourceQuery {
   locations: string[]; // free-text places, e.g. ["Dublin", "Belfast", "London"]
   countries?: string[]; // Adzuna country codes, default ["gb", "ie"]
   perQuery?: number; // results per keyword/location combo (default 20)
+  sourceDomains?: string[]; // sites the user actually applied through, e.g. ["irishjobs.ie"]
 }
 
 function money(min?: number | null, max?: number | null, symbol = "£"): string | null {

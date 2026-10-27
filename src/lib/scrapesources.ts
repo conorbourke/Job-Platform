@@ -22,7 +22,7 @@ function norm(s: string): string {
 }
 
 /** A stable per-posting id so re-runs dedupe correctly. */
-function stableId(url: string | undefined, title: string, company: string): string {
+export function stableId(url: string | undefined, title: string, company: string): string {
   if (url) {
     try {
       const u = new URL(url);
