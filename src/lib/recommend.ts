@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { JOB_SEARCH_LOCATIONS } from "@/config";
 import type { CvContent } from "./cv-schema";
+import { matchesSearchLocation } from "./location";
 import {
   anySourceConfigured,
   fetchAllSources,
@@ -28,10 +30,10 @@ export interface RecommendRunResult {
   fetched: number; // raw postings returned by sources
   scored: number; // survived dedup and were scored
   inserted: number; // stored as new recommendations
-  bySource: Record<string, number>; // raw postings per source (diagnostic)
+  offLocation: number; // dropped because their stated location is elsewhere
+  bySource: Record<string, number>; // in-location postings per source (diagnostic)
 }
 
-const DEFAULT_LOCATIONS = ["Dublin", "Belfast", "London"];
 const MAX_KEYWORDS = 5;
 const MAX_DOMAINS = 6; // applied-through sites searched per run (each is a paid web search)
 // Sites never used as a source, even if a job was applied for there.
@@ -47,6 +49,9 @@ const MAX_INSERT = 50;
 function norm(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
+
+// Re-exported so callers (e.g. the Recommended page) can import it from here.
+export { matchesSearchLocation };
 
 /** "www.irishjobs.ie/jobs/123" -> "irishjobs.ie"; null if not a URL. */
 function hostnameOf(url: string | null | undefined): string | null {
@@ -97,25 +102,9 @@ export async function deriveQuery(
   }
   const keywords = Array.from(keywordSet.values()).slice(0, MAX_KEYWORDS);
 
-  // Locations: applied locations, else parse the master contact line, else default.
-  const locSet = new Set<string>();
-  for (const a of apps ?? []) {
-    const loc = (a.location ?? "").split(/[,/|]/)[0]?.trim();
-    if (loc) locSet.add(loc);
-  }
-  if (locSet.size === 0 && cv?.contact_line) {
-    for (const part of cv.contact_line.split("·")) {
-      const p = part.trim();
-      // A location token: a plain place name, not an email / url / phone.
-      if (p && !p.includes("@") && !/\d/.test(p) && !p.includes(".")) {
-        for (const place of p.split("/")) {
-          const pl = place.trim();
-          if (pl) locSet.add(pl);
-        }
-      }
-    }
-  }
-  const locations = locSet.size ? Array.from(locSet).slice(0, 3) : DEFAULT_LOCATIONS;
+  // Locations: fixed to JOB_SEARCH_LOCATIONS (see config). Results stated to
+  // be anywhere else are dropped by matchesSearchLocation before scoring.
+  const locations = [...JOB_SEARCH_LOCATIONS];
 
   // Sources: the sites the applied jobs were actually posted on, most-used first.
   const domainCount = new Map<string, number>();
@@ -141,7 +130,7 @@ export async function runRecommendations(
   userId: string
 ): Promise<RecommendRunResult> {
   if (!anySourceConfigured()) {
-    return { configured: false, fetched: 0, scored: 0, inserted: 0, bySource: {} };
+    return { configured: false, fetched: 0, scored: 0, inserted: 0, offLocation: 0, bySource: {} };
   }
 
   const query = await deriveQuery(supabase, userId);
@@ -160,15 +149,22 @@ export async function runRecommendations(
   const seenSource = new Set<string>();
   const raw: RawJob[] = [];
   const bySource: Record<string, number> = {};
+  let offLocation = 0;
   for (const j of [...siteJobs, ...apiJobs, ...freeJobs, ...scrapeJobs]) {
     const key = `${j.source}:${j.external_id}`;
     if (seenSource.has(key)) continue;
     seenSource.add(key);
+    // Hard location guarantee: anything stated to be elsewhere never reaches
+    // scoring, regardless of which source returned it.
+    if (!matchesSearchLocation(j.location)) {
+      offLocation += 1;
+      continue;
+    }
     raw.push(j);
     bySource[j.source] = (bySource[j.source] ?? 0) + 1;
   }
   if (raw.length === 0) {
-    return { configured: true, fetched: 0, scored: 0, inserted: 0, bySource };
+    return { configured: true, fetched: 0, scored: 0, inserted: 0, offLocation, bySource };
   }
 
   // Dedup against what we've already recommended and what's already tracked.
@@ -209,7 +205,7 @@ export async function runRecommendations(
     fresh.push(j);
   }
   if (fresh.length === 0) {
-    return { configured: true, fetched: raw.length, scored: 0, inserted: 0, bySource };
+    return { configured: true, fetched: raw.length, scored: 0, inserted: 0, offLocation, bySource };
   }
 
   // Cap how many we score per run (cost + time budget), newest-ish first.
@@ -275,6 +271,7 @@ export async function runRecommendations(
     fetched: raw.length,
     scored: scoreByRef.size,
     inserted,
+    offLocation,
     bySource,
   };
 }

@@ -104,7 +104,7 @@ async function extractList(
 // ---- Per-site search URL builders -----------------------------------------
 
 function indeedUrl(kw: string, loc: string): string {
-  const host = /(^|\W)(uk|england|scotland|wales|london)(\W|$)/i.test(loc)
+  const host = /(^|\W)(uk|england|scotland|wales|london|belfast|northern ireland|derry)(\W|$)/i.test(loc)
     ? "uk.indeed.com"
     : "ie.indeed.com";
   const p = new URLSearchParams({ q: kw, l: loc, fromage: "14" });

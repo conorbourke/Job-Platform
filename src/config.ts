@@ -32,3 +32,11 @@ export const SUPABASE_ANON_KEY =
  */
 export const CLOUDFLARE_ACCOUNT_ID =
   process.env.CLOUDFLARE_ACCOUNT_ID ?? "eebaaf223ab9ae666f8c5d8461268695";
+
+/**
+ * Where recommended jobs must be. Every source is searched for these places,
+ * and any posting whose stated location is somewhere else is dropped before
+ * scoring. Postings with no stated location are kept (they came back from a
+ * location-targeted search). Change here to widen the search.
+ */
+export const JOB_SEARCH_LOCATIONS = ["Belfast"];

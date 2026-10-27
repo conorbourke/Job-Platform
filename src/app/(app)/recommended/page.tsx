@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { anySourceConfigured } from "@/lib/jobsources";
-import { deriveQuery } from "@/lib/recommend";
+import { deriveQuery, matchesSearchLocation } from "@/lib/recommend";
 import type { RecommendedJob } from "@/lib/types";
 import { RecommendedClient } from "./recommended-client";
 
@@ -29,7 +29,8 @@ export default async function RecommendedPage() {
 
   return (
     <RecommendedClient
-      jobs={jobs ?? []}
+      // Also hides recommendations stored before the location rule existed.
+      jobs={(jobs ?? []).filter((j) => matchesSearchLocation(j.location))}
       sourcesConfigured={anySourceConfigured()}
       matching={{
         keywords: matching.keywords,
