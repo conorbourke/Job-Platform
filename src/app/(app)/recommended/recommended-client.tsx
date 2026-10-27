@@ -51,7 +51,10 @@ export function RecommendedClient({
     const sources = bySource && Object.keys(bySource).length
       ? " [" + Object.entries(bySource).map(([s, n]) => `${s}: ${n}`).join(", ") + "]"
       : "";
-    const counts = `Found ${json.fetched ?? 0} · scored ${json.scored ?? 0} · added ${json.inserted ?? 0}.${sources}`;
+    const off = json.offLocation
+      ? ` Dropped ${json.offLocation} outside ${matching.locations.join("/")}.`
+      : "";
+    const counts = `Found ${json.fetched ?? 0} · scored ${json.scored ?? 0} · added ${json.inserted ?? 0}.${sources}${off}`;
     if (json.inserted === 0) {
       if (json.fetched === 0) {
         setNotice(
