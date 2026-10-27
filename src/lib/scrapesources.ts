@@ -4,17 +4,18 @@ import { fetchReadableText } from "./scrape";
 import type { RawJob, SourceQuery } from "./jobsources";
 
 /**
- * HTML-scrape job sources: LinkedIn, Indeed and jobs.ie. Unlike the API sources
- * (Adzuna/Reed) these have no official feed, so we fetch each search-results
- * page through Cloudflare Browser Rendering (a real headless browser — the best
- * chance of getting past JS walls and bot checks) and let the cheap model
- * extract the job list from whatever rendered.
+ * HTML-scrape job sources: jobs.ie (live), plus Indeed and NIJobfinder kept
+ * only for diagnostics. Unlike the API sources (Adzuna/Reed) these have no
+ * official feed, so we fetch each search-results page through Cloudflare
+ * Browser Rendering (a real headless browser — the best chance of getting past
+ * JS walls and bot checks) and let the cheap model extract the job list from
+ * whatever rendered.
  *
- * Reality check: LinkedIn and Indeed actively block automated access from
- * datacenter IPs and their ToS prohibits scraping. This is best-effort — a
- * blocked page simply yields zero jobs for that run rather than erroring.
- * jobs.ie is the most reliable of the three. Requires CLOUDFLARE_API_TOKEN
- * (Browser Rendering); if that's missing these sources are skipped.
+ * Reality check: Indeed actively blocks automated access from datacenter IPs
+ * and its ToS prohibits scraping. This is best-effort — a blocked page simply
+ * yields zero jobs for that run rather than erroring. LinkedIn is deliberately
+ * excluded as a source. Requires CLOUDFLARE_API_TOKEN (Browser Rendering); if
+ * that's missing these sources are skipped.
  */
 
 function norm(s: string): string {
@@ -26,7 +27,7 @@ export function stableId(url: string | undefined, title: string, company: string
   if (url) {
     try {
       const u = new URL(url);
-      // LinkedIn/Indeed embed a long numeric job id in the path — best key.
+      // Many boards embed a long numeric job id in the path — best key.
       const m = u.pathname.match(/(\d{7,})/);
       if (m) return m[1];
       return (u.host + u.pathname).slice(0, 180);
@@ -102,17 +103,6 @@ async function extractList(
 
 // ---- Per-site search URL builders -----------------------------------------
 
-function linkedinUrl(kw: string, loc: string): string {
-  const p = new URLSearchParams({
-    keywords: kw,
-    location: loc,
-    f_TPR: "r1209600", // posted in the last 14 days
-    start: "0",
-  });
-  // Public guest endpoint — returns a job-card list without login.
-  return `https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?${p}`;
-}
-
 function indeedUrl(kw: string, loc: string): string {
   const host = /(^|\W)(uk|england|scotland|wales|london)(\W|$)/i.test(loc)
     ? "uk.indeed.com"
@@ -171,7 +161,6 @@ export async function debugScrapeSources(
   const kw = q.keywords[0] ?? "operations manager";
   const loc = q.locations[0] ?? "Dublin";
   const targets = [
-    { source: "linkedin", url: linkedinUrl(kw, loc) },
     { source: "indeed", url: indeedUrl(kw, loc) },
     { source: "jobs.ie", url: jobsIeUrl(kw, loc) },
     { source: "nijobfinder", url: niJobFinderUrl(kw, loc) },
@@ -206,15 +195,14 @@ export async function fetchScrapeSources(
   const keywords = q.keywords.slice(0, 2);
   const locations = (q.locations.length ? q.locations : ["Ireland"]).slice(0, 2);
 
-  // Only the scrape sources that actually get through from the Worker's IP are
-  // run live: LinkedIn's guest endpoint works, jobs.ie returns content. Indeed
-  // (Cloudflare "security check") and NIJobfinder (Madgex 403) reliably block
-  // server IPs — they stay in the debug endpoint but are skipped here so we
-  // don't burn Browser Rendering calls and time on them.
+  // Only the scrape source that actually gets through from the Worker's IP is
+  // run live: jobs.ie. Indeed (Cloudflare "security check") and NIJobfinder
+  // (Madgex 403) reliably block server IPs — they stay in the debug endpoint
+  // but are skipped here so we don't burn Browser Rendering calls and time on
+  // them. LinkedIn is excluded by choice.
   const targets: { source: string; url: string }[] = [];
   for (const kw of keywords) {
     for (const loc of locations) {
-      targets.push({ source: "linkedin", url: linkedinUrl(kw, loc) });
       targets.push({ source: "jobs.ie", url: jobsIeUrl(kw, loc) });
     }
   }

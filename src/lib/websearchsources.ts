@@ -15,11 +15,13 @@ import type { RawJob, SourceQuery } from "./jobsources";
  * snippet come along when the results expose them. Full content is fetched
  * later, on "Add to New Jobs".
  *
- * Each call is a paid web search, so the fan-out is capped (domains × keywords).
+ * Each call is a paid web search (~1p each plus a little for tokens), so the
+ * fan-out is capped at domains × keywords. 6 × 3 = 18 searches a run, roughly
+ * 20–30p a day at one run per day.
  */
 
-const MAX_DOMAINS = 4;
-const MAX_KEYWORDS = 2;
+const MAX_DOMAINS = 6;
+const MAX_KEYWORDS = 3;
 
 interface FoundPosting {
   title?: string;

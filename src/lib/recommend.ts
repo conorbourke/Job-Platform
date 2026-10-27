@@ -33,7 +33,13 @@ export interface RecommendRunResult {
 
 const DEFAULT_LOCATIONS = ["Dublin", "Belfast", "London"];
 const MAX_KEYWORDS = 5;
-const MAX_DOMAINS = 4; // applied-through sites searched per run (each is a paid web search)
+const MAX_DOMAINS = 6; // applied-through sites searched per run (each is a paid web search)
+// Sites never used as a source, even if a job was applied for there.
+const EXCLUDED_DOMAINS = ["linkedin.com"];
+
+function isExcludedDomain(d: string): boolean {
+  return EXCLUDED_DOMAINS.some((x) => d === x || d.endsWith(`.${x}`));
+}
 const SCORE_CHUNK = 12;
 const MAX_SCORE = 60; // cap postings scored per run (cost + time budget)
 const MAX_INSERT = 50;
@@ -115,7 +121,7 @@ export async function deriveQuery(
   const domainCount = new Map<string, number>();
   for (const a of apps ?? []) {
     const d = hostnameOf(a.job_url);
-    if (d) domainCount.set(d, (domainCount.get(d) ?? 0) + 1);
+    if (d && !isExcludedDomain(d)) domainCount.set(d, (domainCount.get(d) ?? 0) + 1);
   }
   const sourceDomains = Array.from(domainCount.entries())
     .sort((a, b) => b[1] - a[1])
