@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { aiJson } from "../ai";
+import { cvForPrompt, neverClaimInstruction } from "../cv-schema";
 import { fetchReadableText } from "../scrape";
 import type { Application, CvTemplate, FormAnswer, FormQuestion } from "../types";
 
@@ -58,6 +59,8 @@ export async function generateAnswers(opts: {
     .eq("is_master", true)
     .maybeSingle<CvTemplate>();
 
+  const neverClaim = neverClaimInstruction(master?.content?.never_claim);
+
   const regenContext =
     opts.regenerationComment && opts.previousAnswers
       ? `\n\nPREVIOUS ANSWERS (user wants changes):\n${JSON.stringify(opts.previousAnswers)}\nCHANGE REQUEST: ${opts.regenerationComment}`
@@ -69,9 +72,9 @@ export async function generateAnswers(opts: {
     supabase,
     userId,
     feature: "form_answers",
-    system: `You complete job application forms on behalf of a candidate. Answer ONLY from the candidate's real CV data and notes provided — never invent employment history, qualifications, references, ID numbers, or personal data you don't have. If a question needs information you don't have (e.g. National Insurance number, referee contact details), answer with a clearly-bracketed placeholder like "[TO FILL: National Insurance number]" and set confidence low.
+    system: `You complete job application forms on behalf of a candidate. Answer ONLY from the candidate's real CV data and notes provided — never invent employment history, qualifications, references, ID numbers, or personal data you don't have. Never invent projects, systems, websites, clients or achievements, never inflate the candidate's involvement (e.g. "used" must not become "built"), and never attach work to a different employer or organisation. If a question needs information you don't have (e.g. National Insurance number, referee contact details), answer with a clearly-bracketed placeholder like "[TO FILL: National Insurance number]" and set confidence low.
 
-Return JSON {"answers":[{"id":string,"answer":string,"confidence":number}]} — one entry per question id, in the same order. Answers should be concise and form-appropriate (single line for short fields, a paragraph for "why do you want this role" style questions). UK English. confidence 0-1 reflects how well-grounded the answer is in the provided data.`,
+Return JSON {"answers":[{"id":string,"answer":string,"confidence":number}]} — one entry per question id, in the same order. Answers should be concise and form-appropriate (single line for short fields, a paragraph for "why do you want this role" style questions). UK English. confidence 0-1 reflects how well-grounded the answer is in the provided data.${neverClaim ? `\n\n${neverClaim}` : ""}`,
     user: `QUESTIONS:\n${JSON.stringify(opts.questions)}\n\nJOB:\n${[
       `Title: ${opts.application.job_title}`,
       opts.application.location ? `Location: ${opts.application.location}` : "",
@@ -80,7 +83,7 @@ Return JSON {"answers":[{"id":string,"answer":string,"confidence":number}]} — 
         : "",
     ]
       .filter(Boolean)
-      .join("\n")}\n\nCANDIDATE CV (structured):\n${JSON.stringify(master?.content ?? {})}\n${
+      .join("\n")}\n\nCANDIDATE CV (structured):\n${JSON.stringify(master ? cvForPrompt(master.content) : {})}\n${
       opts.userNotes ? `\nCANDIDATE NOTES: ${opts.userNotes}` : ""
     }${regenContext}`,
   });

@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { mergeWithMaster, type CvContent } from "./cv-schema";
+import {
+  cvForPrompt,
+  mergeWithMaster,
+  neverClaimInstruction,
+  parseNeverClaim,
+  type CvContent,
+} from "./cv-schema";
 
 const master: CvContent = {
   full_name: "Conor Bourke",
@@ -59,5 +65,37 @@ describe("mergeWithMaster — fixed slots are inherited, variable slots tailored
     expect(merged.experience[0].company).toBe("Acme Ltd");
     expect(merged.experience[0].role_title).toBe("Ops Lead"); // not overridden → master
     expect(merged.experience[0].responsibilities).toEqual(["only responsibilities changed"]);
+  });
+});
+
+describe("never_claim — forbidden claims stay out of CVs and become a hard rule", () => {
+  const withNever: CvContent = {
+    ...master,
+    never_claim: "Built an admin system for Acme Ltd\n\n  - Led a team of 10  \n",
+  };
+
+  it("parses one claim per line, dropping blanks and bullet markers", () => {
+    expect(parseNeverClaim(withNever.never_claim)).toEqual([
+      "Built an admin system for Acme Ltd",
+      "Led a team of 10",
+    ]);
+    expect(parseNeverClaim(undefined)).toEqual([]);
+  });
+
+  it("is never copied into tailored or role-template content", () => {
+    expect(mergeWithMaster(withNever, {})).not.toHaveProperty("never_claim");
+  });
+
+  it("is stripped from the CV data the AI sees", () => {
+    const forPrompt = cvForPrompt(withNever);
+    expect(forPrompt).not.toHaveProperty("never_claim");
+    expect(JSON.stringify(forPrompt)).not.toContain("admin system");
+  });
+
+  it("produces a hard rule listing every claim, or nothing when empty", () => {
+    const rule = neverClaimInstruction(withNever.never_claim);
+    expect(rule).toContain("- Built an admin system for Acme Ltd");
+    expect(rule).toContain("- Led a team of 10");
+    expect(neverClaimInstruction("  \n ")).toBe("");
   });
 });

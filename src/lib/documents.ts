@@ -1,6 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { aiJson } from "./ai";
-import { mergeWithMaster, type CvContent } from "./cv-schema";
+import {
+  cvForPrompt,
+  mergeWithMaster,
+  neverClaimInstruction,
+  type CvContent,
+} from "./cv-schema";
 import { renderHtmlToPdf } from "./pdf/render";
 import {
   briefHtml,
@@ -271,14 +276,18 @@ export async function generateCvAndCover(opts: {
   }
 
   const portfolioInstruction = opts.attachPortfolio
-    ? 'The candidate is attaching a portfolio PDF/slide deck of websites and admin systems they have built. Mention this attachment naturally in BOTH the cover letter and the email body (e.g. "I have also attached a portfolio of websites and admin systems I have built").'
+    ? 'The candidate is attaching a portfolio PDF/slide deck of websites and admin systems they have built. Mention this attachment naturally in BOTH the cover letter and the email body (e.g. "I have also attached a portfolio of websites and admin systems I have built"). You do NOT know what is in the portfolio: never name, describe or count its projects, and never say who any of it was built for. In particular, never connect portfolio work to any employer, client or organisation in the CV.'
     : "Do NOT mention any portfolio or slide deck anywhere — not in the cover letter, not in the email.";
+
+  const neverClaim = neverClaimInstruction(master.content.never_claim);
 
   const out = await aiJson<AiCvOutput>({
     supabase,
     userId,
     feature: opts.regenerationComment ? "cv_cover_regeneration" : "cv_cover_generation",
     system: `You tailor CVs and cover letters to job descriptions. You NEVER invent employment history, employers, dates, education or qualifications the candidate does not have. You only rewrite the variable sections.
+
+You also NEVER invent projects, systems, websites, apps, products, clients, figures or achievements. Every claim about what the candidate did, in the CV, the cover letter and the email alike, must be traceable to the CV data or the candidate's notes below. Never inflate the candidate's involvement (e.g. "used" or "supported" must not become "built", "developed" or "led"), and never attach work from one place to a different employer or organisation.
 
 Return JSON exactly:
 {
@@ -293,8 +302,8 @@ Return JSON exactly:
  "email_body": string                   // short email: please find attached CV and cover letter, 3-6 sentences, UK English
 }
 
-${portfolioInstruction}`,
-    user: `JOB CONTEXT:\n${contextPrompt(ctx)}\n\nCANDIDATE'S SELECTED CV TEMPLATE ("${template.label}"):\n${JSON.stringify(template.content)}\n\nMASTER CV (fixed facts — companies, dates, education are immutable):\n${JSON.stringify(master.content)}\n\n${opts.userNotes ? `SPECIFIC INFORMATION FROM THE CANDIDATE TO USE: ${opts.userNotes}` : ""}${previousContext}`,
+${portfolioInstruction}${neverClaim ? `\n\n${neverClaim}` : ""}`,
+    user: `JOB CONTEXT:\n${contextPrompt(ctx)}\n\nCANDIDATE'S SELECTED CV TEMPLATE ("${template.label}"):\n${JSON.stringify(cvForPrompt(template.content))}\n\nMASTER CV (fixed facts — companies, dates, education are immutable):\n${JSON.stringify(cvForPrompt(master.content))}\n\n${opts.userNotes ? `SPECIFIC INFORMATION FROM THE CANDIDATE TO USE: ${opts.userNotes}` : ""}${previousContext}`,
   });
 
   // Structurally enforce fixed slots: merge AI output over the master.

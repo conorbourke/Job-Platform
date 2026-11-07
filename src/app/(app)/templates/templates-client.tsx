@@ -358,6 +358,21 @@ function TemplateEditor({
               } />
           </div>
 
+          {isMaster && (
+            <div>
+              <label className="label">Never claim (one per line)</label>
+              <textarea className="input min-h-20"
+                placeholder="e.g. That I built an admin system for a previous employer"
+                value={cv.never_claim ?? ""}
+                onChange={(e) => setCv({ ...cv, never_claim: e.target.value })} />
+              <p className="mt-1 text-xs text-neutral-400">
+                Things that are not true about you. Generated CVs, cover letters,
+                emails and form answers are told never to say or imply them. Not
+                shown on your CV.
+              </p>
+            </div>
+          )}
+
           {/* Education */}
           <div>
             <div className="mb-2 flex items-center justify-between">

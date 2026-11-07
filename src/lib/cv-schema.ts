@@ -9,6 +9,8 @@
  *   - personal details
  * Variable (per role template / per generation):
  *   - about_me, role_title, experience[].responsibilities, licenses
+ * Master-only, never rendered:
+ *   - never_claim — things the AI must never say about the candidate
  */
 
 export interface CvExperience {
@@ -32,6 +34,12 @@ export interface CvContent {
   experience: CvExperience[];
   licenses: string[]; // variable — licenses & qualifications
   education: CvEducation[]; // FIXED
+  /**
+   * Master only. Free text, one claim per line, that the AI must never make
+   * about the candidate (e.g. a system they did not build). Never rendered on
+   * the CV and never copied into role templates or generated content.
+   */
+  never_claim?: string;
 }
 
 export const EMPTY_CV: CvContent = {
@@ -72,4 +80,31 @@ export function mergeWithMaster(
         variable.experience_overrides?.[i]?.responsibilities ?? exp.responsibilities,
     })),
   };
+}
+
+/** Parse the master's never_claim free text into one claim per line. */
+export function parseNeverClaim(text: string | undefined | null): string[] {
+  return (text ?? "")
+    .split("\n")
+    .map((l) => l.replace(/^\s*[-*\u2022]\s*/, "").trim())
+    .filter(Boolean);
+}
+
+/**
+ * CV content as the AI should see it: without the never_claim list, so the
+ * forbidden claims are never presented as candidate facts. The list is given
+ * to the model separately via neverClaimInstruction().
+ */
+export function cvForPrompt(content: CvContent): Omit<CvContent, "never_claim"> {
+  const { never_claim, ...rest } = content;
+  return rest;
+}
+
+/** Hard prompt rule built from the master's never_claim list ("" if empty). */
+export function neverClaimInstruction(text: string | undefined | null): string {
+  const claims = parseNeverClaim(text);
+  if (!claims.length) return "";
+  return `HARD RULE: the candidate has told us the following are NOT true. Never state, imply or hint at any of them anywhere in your output, not even reworded, softened or as part of another sentence. This overrides the CV data, the candidate's notes and any change request:\n${claims
+    .map((c) => `- ${c}`)
+    .join("\n")}`;
 }
