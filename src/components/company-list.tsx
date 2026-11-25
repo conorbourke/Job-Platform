@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useUndoable } from "@/components/undo-toast";
 import type { Company, CompanyTier } from "@/lib/types";
 
 /**
@@ -22,6 +23,7 @@ export function CompanyList({
 }) {
   const [companies, setCompanies] = useState(initial);
   const [dragId, setDragId] = useState<string | null>(null);
+  const { schedule, toast } = useUndoable();
 
   const primary = companies
     .filter((c) => c.tier === "primary")
@@ -74,20 +76,20 @@ export function CompanyList({
       .eq("id", company.id);
   }
 
-  async function remove(company: Company) {
+  /** Hide the row straight away; the delete runs after a few seconds unless undone. */
+  function remove(company: Company) {
     const count = applicationCounts[company.id] ?? 0;
-    if (
-      !confirm(
-        count > 0
-          ? `${company.name} has ${count} application(s). Deleting keeps the applications but unlinks the company. Continue?`
-          : `Delete ${company.name}?`
-      )
-    ) {
-      return;
-    }
-    setCompanies(companies.filter((c) => c.id !== company.id));
-    await createClient().from("companies").delete().eq("id", company.id);
-    onChanged();
+    setCompanies((list) => list.filter((c) => c.id !== company.id));
+    schedule(
+      count > 0
+        ? `${company.name} deleted (its ${count} application${count === 1 ? " stays" : "s stay"})`
+        : `${company.name} deleted`,
+      async () => {
+        await createClient().from("companies").delete().eq("id", company.id);
+        onChanged();
+      },
+      () => setCompanies((list) => (list.some((c) => c.id === company.id) ? list : [...list, company]))
+    );
   }
 
   function Row({ company }: { company: Company }) {
@@ -128,7 +130,7 @@ export function CompanyList({
         >
           {count} application{count === 1 ? "" : "s"}
         </span>
-        <span className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+        <span className="flex gap-1 transition-opacity md:opacity-0 md:group-hover:opacity-100">
           <button onClick={() => onCreateApplication(company.id)}
             className="btn-ghost px-2 py-1 text-xs" title="Create application">
             + Application
@@ -171,6 +173,7 @@ export function CompanyList({
 
   return (
     <section className="space-y-4">
+      {toast}
       <div className="flex items-center justify-between">
         <h2 className="font-semibold">Master company list</h2>
         <span className="text-sm text-neutral-500">

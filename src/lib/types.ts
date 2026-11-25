@@ -43,6 +43,7 @@ export interface UserSettings {
   email_summary_enabled?: boolean; // default true
   auto_briefs_on_schedule?: boolean; // default true
   ics_enabled?: boolean; // default true
+  auto_tailor?: boolean; // default false: pre-generate CVs for good matches on the Jobs page
   default_sort?: "standard" | "newest";
 }
 

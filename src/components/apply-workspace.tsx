@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { AttachmentsSection } from "@/components/attachments-section";
 import { FormCompletion } from "@/components/form-completion";
 import { SuitabilityBadge } from "@/components/suitability-badge";
+import { useUndoable } from "@/components/undo-toast";
 import {
   deadlineLabel,
   gmailComposeLink,
@@ -93,6 +94,9 @@ export function ApplyWorkspace({
   const [extracting, setExtracting] = useState(false);
   const [appliedDate, setAppliedDate] = useState(today);
   const [finishing, setFinishing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [showKeys, setShowKeys] = useState(false);
+  const { schedule: scheduleUndoable, toast } = useUndoable();
 
   const company = companies.find((c) => c.id === app.company_id);
   const deadline = deadlineLabel(app.due_date, today);
@@ -298,19 +302,76 @@ export function ApplyWorkspace({
     router.push(queue.nextId ? `/jobs/${queue.nextId}` : "/jobs");
   }
 
-  async function remove() {
-    if (!window.confirm("Delete this job? This can't be undone.")) return;
-    await supabase.from("applications").delete().eq("id", app.id);
-    router.push(queue.nextId ? `/jobs/${queue.nextId}` : "/jobs");
-    router.refresh();
+  /** Delete with a few seconds to Undo, instead of an "Are you sure?" pop-up. */
+  function remove() {
+    setDeleting(true);
+    const here = `/jobs/${app.id}`;
+    scheduleUndoable(
+      "Job deleted",
+      async () => {
+        await supabase.from("applications").delete().eq("id", app.id);
+        // Only move on if you're still looking at this job.
+        if (window.location.pathname === here) {
+          router.push(queue.nextId ? `/jobs/${queue.nextId}` : "/jobs");
+        }
+        router.refresh();
+      },
+      () => setDeleting(false)
+    );
   }
 
   const isWebForm = app.application_type === "web_form";
 
+  // Keyboard shortcuts for working through the queue. Actions that change
+  // something (generate, mark applied) need Shift so a stray key can't fire them.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.metaKey || e.ctrlKey || e.altKey || deleting) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      switch (e.key) {
+        case "G":
+          if (!docs && !generating && cvTemplates.length) {
+            e.preventDefault();
+            generate(false);
+          }
+          break;
+        case "A":
+          if (!finishing) {
+            e.preventDefault();
+            markApplied();
+          }
+          break;
+        case "d":
+          if (docs) downloadBoth();
+          break;
+        case "e":
+          if (docs && !isWebForm) {
+            window.open(gmailComposeLink(docs.applicationEmail, docs.emailSubject, docs.emailBody), "_blank", "noopener");
+          }
+          break;
+        case "n":
+        case "ArrowRight":
+          if (queue.nextId) skip();
+          break;
+        case "?":
+          setShowKeys((v) => !v);
+          break;
+        case "Escape":
+          setShowKeys(false);
+          break;
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   // ----------------------------------------------------------------- render --
 
   return (
-    <div className="max-w-3xl space-y-5">
+    <div className={`max-w-3xl space-y-5 ${deleting ? "pointer-events-none opacity-40" : ""}`}>
+      {toast}
+      {showKeys && <ShortcutHelp onClose={() => setShowKeys(false)} />}
       {/* Queue navigation */}
       <div className="flex items-center justify-between text-sm">
         <Link href="/jobs" className="font-medium text-neutral-500 hover:text-neutral-900">
@@ -681,6 +742,48 @@ export function ApplyWorkspace({
           It moves to Applied, where you can track replies and prep for interviews.
         </p>
       </Step>
+
+      <p className="hidden text-center text-xs text-neutral-400 md:block">
+        Tip: press <Kbd>?</Kbd> for keyboard shortcuts
+      </p>
+    </div>
+  );
+}
+
+function Kbd({ children }: { children: React.ReactNode }) {
+  return (
+    <kbd className="rounded border border-neutral-300 bg-white px-1.5 py-0.5 font-mono text-[11px] text-neutral-700">
+      {children}
+    </kbd>
+  );
+}
+
+function ShortcutHelp({ onClose }: { onClose: () => void }) {
+  const rows: [React.ReactNode, string][] = [
+    [<><Kbd>Shift</Kbd> + <Kbd>G</Kbd></>, "Generate CV & cover letter"],
+    [<Kbd key="d">D</Kbd>, "Download both PDFs"],
+    [<Kbd key="e">E</Kbd>, "Open the email in Gmail"],
+    [<><Kbd>Shift</Kbd> + <Kbd>A</Kbd></>, "Mark applied → next job"],
+    [<><Kbd>N</Kbd> or <Kbd>→</Kbd></>, "Skip to the next job"],
+    [<Kbd key="q">?</Kbd>, "Show / hide this list"],
+  ];
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
+      <div className="card w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="font-semibold">Keyboard shortcuts</h2>
+          <button onClick={onClose} className="btn-ghost px-2 py-1 text-lg leading-none" aria-label="Close">×</button>
+        </div>
+        <ul className="space-y-2 text-sm">
+          {rows.map(([keys, what], i) => (
+            <li key={i} className="flex items-center justify-between gap-4">
+              <span className="text-neutral-600">{what}</span>
+              <span className="shrink-0">{keys}</span>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-3 text-xs text-neutral-400">Shortcuts pause while you&apos;re typing in a box.</p>
+      </div>
     </div>
   );
 }
