@@ -32,6 +32,41 @@ export function htmlToText(html: string): string {
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 
+/** How much page text we keep and hand to the model (long postings run ~25k). */
+const MAX_PAGE_CHARS = 40000;
+
+/**
+ * LinkedIn job id from any LinkedIn job link:
+ *   /jobs/view/4477199196/…, /jobs/view/some-title-at-co-4477199196,
+ *   …/jobs/search/?currentJobId=4477199196, or the guest jobPosting endpoint.
+ */
+export function linkedinJobId(url: string): string | null {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return null;
+  }
+  if (!/(^|\.)linkedin\.com$/i.test(u.hostname)) return null;
+  const fromParam = u.searchParams.get("currentJobId");
+  if (fromParam && /^\d{6,}$/.test(fromParam)) return fromParam;
+  const m = u.pathname.match(/\/jobs(?:-guest\/jobs\/api\/jobPosting|\/view)\/(?:[^/]*?-)?(\d{6,})(?:\/|$)/);
+  return m ? m[1] : null;
+}
+
+/**
+ * A clean, stable link to store: LinkedIn links lose their tracking junk
+ * (…?alternateChannel=…&trackingId=…), so the same job always has the same URL.
+ */
+export function canonicalJobUrl(url: string): string {
+  const id = linkedinJobId(url);
+  return id ? `https://www.linkedin.com/jobs/view/${id}/` : url;
+}
+
+/** The instruction both extraction paths share: keep the posting VERBATIM. */
+const DESCRIPTION_RULES =
+  '"description" is the FULL job description copied VERBATIM, exactly as written in the posting, from its first line to its last: every section (e.g. about the role, responsibilities, requirements, preferred experience, salary & benefits, about the company, hiring process, equality statement). Do NOT summarise, shorten, paraphrase or reorder anything. Keep the original headings on their own lines and keep every bullet point as a separate line starting with "- ". Leave out only website clutter that is not part of the posting (navigation, cookie banners, "show more", "similar jobs", sign-in prompts, other job listings).';
+
 /**
  * Fetch a page's readable text, best-effort. Prefers Cloudflare Browser
  * Rendering (a real headless browser that runs JavaScript and presents a
@@ -60,7 +95,7 @@ export async function fetchReadableText(url: string): Promise<string> {
       });
       if (res.ok) {
         const json = (await res.json()) as { result?: string };
-        if (json.result?.trim()) return json.result.slice(0, 24000);
+        if (json.result?.trim()) return json.result.slice(0, MAX_PAGE_CHARS);
       }
     } catch {
       // fall through to /content
@@ -76,7 +111,7 @@ export async function fetchReadableText(url: string): Promise<string> {
       if (res.ok) {
         const json = (await res.json()) as { result?: string };
         const text = htmlToText(json.result ?? "");
-        if (text.trim()) return text.slice(0, 24000);
+        if (text.trim()) return text.slice(0, MAX_PAGE_CHARS);
       }
     } catch {
       // fall through to plain fetch
@@ -91,7 +126,7 @@ export async function fetchReadableText(url: string): Promise<string> {
     });
     if (res.ok) {
       const text = htmlToText(await res.text());
-      if (text.trim()) return text.slice(0, 24000);
+      if (text.trim()) return text.slice(0, MAX_PAGE_CHARS);
     }
   } catch {
     // give up
@@ -109,7 +144,16 @@ export async function scrapeJobUrl(
   userId: string,
   url: string
 ): Promise<Partial<ScrapedJob>> {
-  const text = await fetchReadableText(url);
+  // LinkedIn: its guest "jobPosting" endpoint returns just this one posting,
+  // with the complete description and no login wall or page clutter.
+  let text = "";
+  const liId = linkedinJobId(url);
+  if (liId) {
+    text = await fetchReadableText(
+      `https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/${liId}`
+    );
+  }
+  if (!text) text = await fetchReadableText(url);
   if (text) return extractJobFromText(supabase, userId, text, url);
 
   // Our own fetch was blocked (e.g. bot wall). Let Claude retrieve it itself
@@ -121,9 +165,9 @@ export async function scrapeJobUrl(
       supabase,
       userId,
       feature: "job_url_scrape",
-      system:
-        'Retrieve the job posting at the given URL (use web_fetch; if that fails, use web_search to find the same posting) and reconstruct it. Return ONLY JSON: {"job_title":string,"company_name":string,"location":string,"salary_text":string,"description":string}. "description" is a clean, faithful ~150-400 word write-up of the role based only on what you retrieve. Use "" for any field you genuinely cannot find. Never invent details.',
+      system: `Retrieve the job posting at the given URL (use web_fetch; if that fails, use web_search to find the same posting). Return ONLY JSON: {"job_title":string,"company_name":string,"location":string,"salary_text":string,"description":string}. ${DESCRIPTION_RULES} Use "" for any field you genuinely cannot find. Never invent details.`,
       user: `Job posting URL: ${url}`,
+      maxOutputTokens: 12000,
     });
     return viaWeb ?? {};
   } catch {
@@ -148,9 +192,11 @@ export async function extractJobFromText(
       supabase,
       userId,
       feature: "job_url_scrape",
-      system:
-        'You read the text/markdown of a job posting and reconstruct the posting. Return JSON: {"job_title":string,"company_name":string,"location":string,"salary_text":string,"description":string}. "description" is a clean, faithful write-up of the role — what the company does, responsibilities, requirements and anything notable — in ~150-400 words, based only on the provided text. Ignore site navigation, cookie banners, and unrelated job listings. Use "" for any field genuinely not present. Never invent details that are not in the text.',
-      user: `${url ? `Source URL: ${url}\n\n` : ""}Content:\n${text.slice(0, 24000)}`,
+      system: `You read the text/markdown of a job posting page and extract the posting. Return JSON: {"job_title":string,"company_name":string,"location":string,"salary_text":string,"description":string}. ${DESCRIPTION_RULES} "salary_text" is the salary or pay as stated (e.g. "£35,000 - £45,000"). Use "" for any field genuinely not present. Never invent details that are not in the text.`,
+      user: `${url ? `Source URL: ${url}\n\n` : ""}Content:\n${text.slice(0, MAX_PAGE_CHARS)}`,
+      // A full verbatim posting can be long; leave plenty of room so the JSON
+      // isn't cut off mid-description.
+      maxOutputTokens: 12000,
     });
   } catch {
     return {};

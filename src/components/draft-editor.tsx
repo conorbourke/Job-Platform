@@ -49,6 +49,7 @@ export function DraftEditor({
   const [app, setApp] = useState(application);
   const [saved, setSaved] = useState(false);
   const [extracting, setExtracting] = useState(false);
+  const [rereading, setRereading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function saveFields(extra: Partial<Application> = {}) {
@@ -104,6 +105,36 @@ export function DraftEditor({
       return;
     }
     setApp({ ...app, job_description_text: json.text });
+  }
+
+  /** Fetch the job page again and replace the description with the full text. */
+  async function rereadFromUrl() {
+    if (!app.job_url) return;
+    setRereading(true);
+    setError(null);
+    const res = await fetch("/api/scrape", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ application_id: app.id, url: app.job_url }),
+    });
+    const json = await res.json().catch(() => ({}));
+    setRereading(false);
+    if (!res.ok) {
+      setError(json.error ?? "Couldn't re-read the job page.");
+      return;
+    }
+    const fresh = json.application as Application;
+    // Take the new description; keep any edits you've made to other fields.
+    setApp((prev) => ({
+      ...prev,
+      job_description_text: fresh.job_description_text,
+      job_title: prev.job_title || fresh.job_title,
+      location: prev.location || fresh.location,
+      salary_text: prev.salary_text || fresh.salary_text,
+      company_id: prev.company_id || fresh.company_id,
+      job_url: fresh.job_url,
+    }));
+    onChanged();
   }
 
   return (
@@ -196,10 +227,23 @@ export function DraftEditor({
       <div className="mt-3">
         <div className="flex items-center justify-between">
           <label className="label">Job description (paste, or upload PDF/Word)</label>
-          <label className="cursor-pointer text-xs font-medium text-accent-600 hover:underline">
-            {extracting ? "Extracting…" : "Upload file"}
-            <input type="file" accept=".pdf,.docx,.txt" className="hidden" onChange={onJdFile} />
-          </label>
+          <div className="flex items-center gap-3">
+            {app.job_url && (
+              <button
+                type="button"
+                onClick={rereadFromUrl}
+                disabled={rereading}
+                className="text-xs font-medium text-accent-600 hover:underline disabled:opacity-50"
+                title="Fetch the job page again and replace this with the full posting text"
+              >
+                {rereading ? "Reading page…" : "Re-read from job URL"}
+              </button>
+            )}
+            <label className="cursor-pointer text-xs font-medium text-accent-600 hover:underline">
+              {extracting ? "Extracting…" : "Upload file"}
+              <input type="file" accept=".pdf,.docx,.txt" className="hidden" onChange={onJdFile} />
+            </label>
+          </div>
         </div>
         <textarea className="input min-h-32" value={app.job_description_text ?? ""}
           onChange={(e) => setApp({ ...app, job_description_text: e.target.value })} />
