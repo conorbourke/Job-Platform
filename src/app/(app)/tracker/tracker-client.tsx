@@ -167,7 +167,7 @@ export function TrackerClient({
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Tracker</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Applied</h1>
         <span className="text-sm text-neutral-500">
           {toApplyCount} to apply · {applied.length} applied · {rejected.length} rejected
         </span>

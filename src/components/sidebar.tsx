@@ -6,25 +6,14 @@ import { APP_NAME } from "@/config";
 import { createClient } from "@/lib/supabase/client";
 
 const TABS = [
-  { href: "/dashboard", label: "Dashboard" },
+  { href: "/dashboard", label: "Today" },
   { href: "/jobs", label: "Jobs" },
   { href: "/tracker", label: "Applied" },
-  { href: "/templates", label: "CV Templates" },
+  { href: "/templates", label: "CV & Templates" },
   { href: "/settings", label: "Settings" },
 ];
 
-const ADMIN_TABS = [
-  { href: "/admin/users", label: "Users" },
-  { href: "/admin/settings", label: "Admin Settings" },
-];
-
-export function Sidebar({
-  isSuperadmin,
-  userName,
-}: {
-  isSuperadmin: boolean;
-  userName: string;
-}) {
+export function Sidebar({ userName }: { userName: string }) {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -61,16 +50,6 @@ export function Sidebar({
         {TABS.map((t) => (
           <NavLink key={t.href} {...t} />
         ))}
-        {isSuperadmin && (
-          <>
-            <div className="px-3 pt-5 pb-1 text-[11px] font-semibold uppercase tracking-wider text-blue-300/70">
-              Superadmin
-            </div>
-            {ADMIN_TABS.map((t) => (
-              <NavLink key={t.href} {...t} />
-            ))}
-          </>
-        )}
       </nav>
       <div className="border-t border-white/10 p-4">
         <p className="truncate text-xs text-blue-200" title={userName}>
