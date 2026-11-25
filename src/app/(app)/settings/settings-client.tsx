@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { Profile, RoleOfInterest, UserSettings } from "@/lib/types";
 
@@ -16,31 +15,22 @@ interface ImportRow {
 export function SettingsClient({
   profile,
   roles: initialRoles,
-  maxRoles,
-  maxCompanies,
-  aiModel,
-  donationUrl,
-  aiLimit,
+  platform,
 }: {
   profile: Profile;
   roles: RoleOfInterest[];
-  maxRoles: number;
-  maxCompanies: number;
-  aiModel: string;
-  donationUrl: string;
-  aiLimit: number | null;
+  platform: PlatformSettings;
 }) {
   return (
     <div className="max-w-3xl space-y-6">
       <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
       <NotificationSettings profile={profile} />
       <BehaviourSettings profile={profile} />
-      <CompanyImport maxCompanies={maxCompanies} />
-      <RolesManager initialRoles={initialRoles} maxRoles={maxRoles} />
+      <CompanyImport maxCompanies={platform.max_companies} />
+      <RolesManager initialRoles={initialRoles} maxRoles={platform.max_roles} />
       <SignatureUpload userId={profile.id} />
-      <AiInfo aiModel={aiModel} aiLimit={aiLimit} donationUrl={donationUrl} />
-      <FeatureRequest userId={profile.id} />
-      <DataPrivacy />
+      <AiLimitsSettings initial={platform} />
+      <DataExport />
     </div>
   );
 }
@@ -464,118 +454,104 @@ function SignatureUpload({ userId }: { userId: string }) {
   );
 }
 
-/* ----------------------------- AI info ----------------------------- */
+/* ----------------------------- AI & limits ----------------------------- */
 
-function AiInfo({
-  aiModel,
-  aiLimit,
-  donationUrl,
-}: {
-  aiModel: string;
-  aiLimit: number | null;
-  donationUrl: string;
-}) {
-  return (
-    <Section title="AI" description="AI generation is powered by the platform.">
-      <dl className="grid gap-3 text-sm sm:grid-cols-2">
-        <div>
-          <dt className="text-neutral-500">Model</dt>
-          <dd className="font-medium">{aiModel}</dd>
-        </div>
-        <div>
-          <dt className="text-neutral-500">Monthly generation limit</dt>
-          <dd className="font-medium">{aiLimit === null ? "Unlimited" : aiLimit}</dd>
-        </div>
-      </dl>
-      <p className="mt-4 text-sm text-neutral-500">
-        Finding it useful?{" "}
-        <a href={donationUrl} target="_blank" rel="noopener noreferrer"
-          className="text-amber-600 hover:underline">
-          Buy me a coffee ☕
-        </a>
-      </p>
-    </Section>
-  );
+export interface PlatformSettings {
+  default_ai_model: string;
+  cheap_ai_model: string;
+  ai_monthly_generation_limit: number | null;
+  max_companies: number;
+  max_roles: number;
+  max_cv_templates: number;
 }
 
-/* ----------------------------- Feature requests ----------------------------- */
-
-function FeatureRequest({ userId }: { userId: string }) {
-  const [body, setBody] = useState("");
-  const [sent, setSent] = useState(false);
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    await createClient().from("feature_requests").insert({ user_id: userId, body });
-    setBody("");
-    setSent(true);
-    setTimeout(() => setSent(false), 3000);
-  }
-
-  return (
-    <Section title="Request a feature" description="Tell us what would make this more useful.">
-      <form onSubmit={submit} className="space-y-3">
-        <textarea className="input min-h-24" required value={body}
-          onChange={(e) => setBody(e.target.value)}
-          placeholder="It would be great if…" />
-        <button type="submit" className="btn-secondary">{sent ? "Thanks! ✓" : "Send"}</button>
-      </form>
-    </Section>
-  );
-}
-
-/* ----------------------------- Data & privacy ----------------------------- */
-
-function DataPrivacy() {
-  const router = useRouter();
-  const [confirming, setConfirming] = useState(false);
-  const [typed, setTyped] = useState("");
+function AiLimitsSettings({ initial }: { initial: PlatformSettings }) {
+  const [s, setS] = useState(initial);
+  const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function deleteAccount() {
+  async function save() {
     setBusy(true);
     setError(null);
-    const res = await fetch("/api/account/delete", {
+    const res = await fetch("/api/settings/platform", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ confirmation: typed }),
+      body: JSON.stringify(s),
     });
+    const json = await res.json().catch(() => ({}));
+    setBusy(false);
     if (!res.ok) {
-      const json = await res.json().catch(() => ({}));
-      setError(json.error ?? "Deletion failed");
-      setBusy(false);
+      setError(json.error ?? "Couldn't save.");
       return;
     }
-    await createClient().auth.signOut();
-    router.push("/");
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
   }
 
+  const num = (v: string) => (v === "" ? 0 : Number(v));
+
   return (
-    <Section title="Your data" description="UK GDPR: export everything, or erase your account entirely.">
-      <div className="flex flex-wrap gap-3">
-        <a href="/api/account/export" className="btn-secondary">Download my data (.zip)</a>
-        {!confirming ? (
-          <button onClick={() => setConfirming(true)} className="btn-danger">Delete account…</button>
-        ) : (
-          <div className="w-full space-y-3 rounded-lg border border-red-200 bg-red-50 p-4">
-            <p className="text-sm text-red-700">
-              This permanently deletes your account, all applications, templates,
-              documents and files. It cannot be undone. Type <strong>DELETE</strong> to confirm.
-            </p>
-            <input className="input max-w-xs" value={typed}
-              onChange={(e) => setTyped(e.target.value)} placeholder="DELETE" />
-            {error && <p className="text-sm text-red-700">{error}</p>}
-            <div className="flex gap-2">
-              <button onClick={deleteAccount} disabled={typed !== "DELETE" || busy}
-                className="btn-danger">
-                {busy ? "Deleting…" : "Permanently delete"}
-              </button>
-              <button onClick={() => setConfirming(false)} className="btn-secondary">Cancel</button>
-            </div>
+    <Section
+      title="AI & limits"
+      description="Which Claude models the app uses, and how far it can go. Changes apply straight away."
+    >
+      {error && <p className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label className="label">Writing model</label>
+          <input className="input" value={s.default_ai_model}
+            onChange={(e) => setS({ ...s, default_ai_model: e.target.value })} />
+          <p className="mt-1 text-xs text-neutral-400">Writes your tailored CV &amp; cover letter.</p>
+        </div>
+        <div>
+          <label className="label">Everyday model</label>
+          <input className="input" value={s.cheap_ai_model}
+            onChange={(e) => setS({ ...s, cheap_ai_model: e.target.value })} />
+          <p className="mt-1 text-xs text-neutral-400">
+            Reading adverts, match scores, briefs, interview prep, form answers.
+          </p>
+        </div>
+        <div>
+          <label className="label">Monthly AI generation limit</label>
+          <input type="number" min={1} className="input" placeholder="Empty = unlimited"
+            value={s.ai_monthly_generation_limit ?? ""}
+            onChange={(e) =>
+              setS({ ...s, ai_monthly_generation_limit: e.target.value === "" ? null : num(e.target.value) })
+            } />
+          <p className="mt-1 text-xs text-neutral-400">A safety cap on AI spend. Leave empty for no limit.</p>
+        </div>
+        <div className="grid grid-cols-3 gap-2 sm:col-span-2">
+          <div>
+            <label className="label">Max companies</label>
+            <input type="number" min={1} className="input" value={s.max_companies}
+              onChange={(e) => setS({ ...s, max_companies: num(e.target.value) })} />
           </div>
-        )}
+          <div>
+            <label className="label">Max target roles</label>
+            <input type="number" min={1} className="input" value={s.max_roles}
+              onChange={(e) => setS({ ...s, max_roles: num(e.target.value) })} />
+          </div>
+          <div>
+            <label className="label">Max CV templates</label>
+            <input type="number" min={1} className="input" value={s.max_cv_templates}
+              onChange={(e) => setS({ ...s, max_cv_templates: num(e.target.value) })} />
+          </div>
+        </div>
       </div>
+      <button onClick={save} disabled={busy} className="btn-primary mt-4">
+        {saved ? "Saved ✓" : busy ? "Saving…" : "Save"}
+      </button>
+    </Section>
+  );
+}
+
+/* ----------------------------- Your data ----------------------------- */
+
+function DataExport() {
+  return (
+    <Section title="Your data" description="Download everything — applications, documents, templates and files.">
+      <a href="/api/account/export" className="btn-secondary">Download my data (.zip)</a>
     </Section>
   );
 }

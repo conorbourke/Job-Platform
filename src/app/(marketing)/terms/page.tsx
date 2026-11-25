@@ -12,9 +12,7 @@ export default function TermsPage() {
       <h2>The service</h2>
       <p>
         {APP_NAME} helps you organise job applications and generate documents
-        with AI assistance. The service is currently free; donations are
-        welcome but never required. We may introduce paid plans in future with
-        clear advance notice — existing data will never be held hostage.
+        with AI assistance.
       </p>
 
       <h2>Your account</h2>

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   daysUntil,
   deadlineLabel,
+  followUpDays,
   gmailComposeLink,
   mailtoLink,
   queuePosition,
@@ -99,5 +100,28 @@ describe("wordCount", () => {
     expect(wordCount("  Why this role   matters\n\n- Support the COO ")).toBe(7);
     expect(wordCount("")).toBe(0);
     expect(wordCount(null)).toBe(0);
+  });
+});
+
+describe("followUpDays", () => {
+  const today = "2026-11-25";
+  const a = (status: string, changed: string | null, submitted: string | null = null) => ({
+    status,
+    status_changed_at: changed,
+    date_submitted: submitted,
+  });
+  it("flags applications waiting 10+ days with no reply", () => {
+    expect(followUpDays(a("applied", "2026-11-15T09:00:00Z"), today)).toBe(10);
+    expect(followUpDays(a("applied", "2026-11-01T09:00:00Z"), today)).toBe(24);
+  });
+  it("doesn't flag recent ones, or ones that have moved on", () => {
+    expect(followUpDays(a("applied", "2026-11-20T09:00:00Z"), today)).toBeNull();
+    expect(followUpDays(a("screening_call", "2026-10-01T09:00:00Z"), today)).toBeNull();
+    expect(followUpDays(a("rejected", "2026-10-01T09:00:00Z"), today)).toBeNull();
+    expect(followUpDays(a("draft", "2026-10-01T09:00:00Z"), today)).toBeNull();
+  });
+  it("falls back to the submitted date, and ignores missing dates", () => {
+    expect(followUpDays(a("applied", null, "2026-11-05"), today)).toBe(20);
+    expect(followUpDays(a("applied", null, null), today)).toBeNull();
   });
 });

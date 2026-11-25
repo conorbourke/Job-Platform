@@ -81,3 +81,21 @@ export function gmailComposeLink(to: string, subject: string, body: string): str
 export function wordCount(text: string | null | undefined): number {
   return (text ?? "").split(/\s+/).filter((t) => /[\p{L}\p{N}]/u.test(t)).length;
 }
+
+/** Applied with no reply for this long → suggest a follow-up. */
+export const FOLLOW_UP_AFTER_DAYS = 10;
+
+/**
+ * Days you've been waiting on an application, if it's due a follow-up (still
+ * "Applied" — no reply logged — for FOLLOW_UP_AFTER_DAYS or more); else null.
+ */
+export function followUpDays(
+  app: { status: string; status_changed_at: string | null; date_submitted: string | null },
+  today: string
+): number | null {
+  if (app.status !== "applied") return null;
+  const since = (app.status_changed_at ?? app.date_submitted ?? "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(since)) return null;
+  const waited = -daysUntil(since, today);
+  return waited >= FOLLOW_UP_AFTER_DAYS ? waited : null;
+}
