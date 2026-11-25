@@ -11,7 +11,7 @@ import { withTimeout } from "@/lib/timeout";
  */
 
 // Pages anyone may see.
-const PUBLIC_PAGES = new Set(["/login", "/privacy", "/terms"]);
+const PUBLIC_PAGES = new Set(["/login"]);
 // APIs that do their own authentication.
 const PUBLIC_API_PREFIXES = [
   "/api/auth/pin", // the PIN sign-in itself (lockout enforced in the database)
