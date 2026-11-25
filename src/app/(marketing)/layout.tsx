@@ -40,11 +40,8 @@ export default async function MarketingLayout({
             {APP_NAME}
           </Link>
           <nav className="flex items-center gap-4 text-sm">
-            <Link href="/login" className="text-neutral-600 hover:text-neutral-900">
+            <Link href="/login" className="btn-primary">
               Sign in
-            </Link>
-            <Link href="/signup" className="btn-primary">
-              Get started free
             </Link>
           </nav>
         </div>
