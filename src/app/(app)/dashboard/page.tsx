@@ -135,7 +135,7 @@ export default async function DashboardPage() {
       <section className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         {(
           [
-            ["Drafts", pipeline.drafts, "/suggested"],
+            ["To apply", pipeline.drafts, "/jobs"],
             ["Applied", pipeline.applied, "/tracker"],
             ["Screening calls", pipeline.screening, "/tracker"],
             ["Interviews", pipeline.interviews, "/tracker"],

@@ -4,10 +4,10 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { TrackerRow } from "@/lib/sort";
-import type { ApplicationStatus, Company, CvTemplate } from "@/lib/types";
+import type { ApplicationStatus, Company } from "@/lib/types";
 import { STATUS_LABELS, STATUS_BADGE_CLASSES, formatDate, formatDateTime } from "@/lib/labels";
 import { ApplicationDetail } from "@/components/application-detail";
-import { DraftEditor } from "@/components/draft-editor";
+import Link from "next/link";
 
 const STATUS_OPTIONS = Object.keys(STATUS_LABELS) as ApplicationStatus[];
 
@@ -35,25 +35,24 @@ const SORT_VALUE: Record<SortKey, (r: TrackerRow) => string | number | null> = {
 };
 
 export function TrackerClient({
-  notApplied,
+  toApplyCount,
   applied,
   rejected,
   companies,
-  cvTemplates,
-  priorRolesByCompany,
+  initialOpenId = null,
 }: {
-  notApplied: TrackerRow[];
+  toApplyCount: number;
   applied: TrackerRow[];
   rejected: TrackerRow[];
   companies: Company[];
-  cvTemplates: CvTemplate[];
-  priorRolesByCompany: Record<string, string[]>;
+  initialOpenId?: string | null; // ?open=<id> — open that application's panel
 }) {
   const router = useRouter();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [showRejected, setShowRejected] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(initialOpenId);
+  const [showRejected, setShowRejected] = useState(
+    !!initialOpenId && rejected.some((r) => r.id === initialOpenId)
+  );
   const [schedulingId, setSchedulingId] = useState<string | null>(null);
-  const [openDraftId, setOpenDraftId] = useState<string | null>(null);
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" } | null>(null);
 
   // Click a header to sort by it; click again to flip direction. With no sort
@@ -96,14 +95,6 @@ export function TrackerClient({
       patch.date_submitted = new Date().toISOString().slice(0, 10);
     }
     await supabase.from("applications").update(patch).eq("id", id);
-    router.refresh();
-  }
-
-  async function deleteDraft(id: string) {
-    if (!window.confirm("Delete this draft? This can't be undone.")) return;
-    const supabase = createClient();
-    await supabase.from("applications").delete().eq("id", id);
-    if (openDraftId === id) setOpenDraftId(null);
     router.refresh();
   }
 
@@ -178,86 +169,22 @@ export function TrackerClient({
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold tracking-tight">Tracker</h1>
         <span className="text-sm text-neutral-500">
-          {notApplied.length} not applied · {applied.length} applied · {rejected.length} rejected
+          {toApplyCount} to apply · {applied.length} applied · {rejected.length} rejected
         </span>
       </div>
 
-      {/* ---------- Not applied: tailor CV/cover, then mark applied ---------- */}
-      <section className="rounded-2xl border border-sky-300 bg-sky-200/50 p-5">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-sky-900">Not applied</h2>
-            <p className="text-sm text-sky-700/80">
-              Generate a tailored CV &amp; cover letter for each job, then mark it as applied.
-            </p>
-          </div>
-          <span className="rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-medium text-sky-700">
-            {notApplied.length}
+      {/* Jobs not yet applied for live in Jobs, where each opens ready to apply. */}
+      {toApplyCount > 0 && (
+        <Link
+          href="/jobs"
+          className="flex items-center justify-between rounded-xl border border-sky-300 bg-sky-50 px-5 py-3 text-sm text-sky-900 hover:bg-sky-100"
+        >
+          <span>
+            <strong>{toApplyCount}</strong> job{toApplyCount === 1 ? "" : "s"} waiting to be applied for
           </span>
-        </div>
-
-        {notApplied.length === 0 ? (
-          <p className="text-sm text-sky-700/70">
-            Nothing waiting to apply — capture jobs in the New Jobs tab.
-          </p>
-        ) : (
-          <div className="space-y-3">
-            {notApplied.map((d) => {
-              const priorRoles = d.company_id
-                ? priorRolesByCompany[d.company_id] ?? []
-                : [];
-              return (
-              <div
-                key={d.id}
-                className="overflow-hidden rounded-xl border border-sky-100 bg-white"
-              >
-                <button
-                  onClick={() => setOpenDraftId(openDraftId === d.id ? null : d.id)}
-                  className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-sky-50/70"
-                >
-                  <span className="min-w-0">
-                    <span className="flex items-center gap-2">
-                      <span className="truncate text-sm font-medium text-neutral-900">
-                        {d.job_title || "Untitled job"}
-                      </span>
-                      {priorRoles.length > 0 && (
-                        <span
-                          className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700"
-                          title={`You've already applied to ${d.company_name ?? "this company"} for: ${priorRoles.join(", ")}`}
-                        >
-                          Applied here before
-                        </span>
-                      )}
-                    </span>
-                    <span className="block truncate text-xs text-neutral-400">
-                      {d.company_name ?? "No company"} ·{" "}
-                      {d.due_date ? `due ${formatDate(d.due_date)}` : "no deadline"}
-                    </span>
-                  </span>
-                  <span className="shrink-0 text-xs font-semibold text-sky-600">
-                    {openDraftId === d.id ? "Close" : "Tailor & apply →"}
-                  </span>
-                </button>
-                {openDraftId === d.id && (
-                  <div className="border-t border-sky-100 bg-sky-50/40 p-4">
-                    <DraftEditor
-                      key={d.id}
-                      application={d}
-                      companies={companies}
-                      cvTemplates={cvTemplates}
-                      showAttachments
-                      onChanged={() => router.refresh()}
-                      onClose={() => setOpenDraftId(null)}
-                      onDelete={() => deleteDraft(d.id)}
-                    />
-                  </div>
-                )}
-              </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
+          <span className="font-semibold">Go to Jobs →</span>
+        </Link>
+      )}
 
       {/* ---------- Applied: the tracker ---------- */}
       <section className="rounded-2xl border border-blue-300 bg-blue-100/60 p-5 shadow-sm">
