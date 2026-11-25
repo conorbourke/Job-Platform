@@ -6,7 +6,8 @@ import { SuitabilityBadge } from "@/components/suitability-badge";
 import { formatDate } from "@/lib/labels";
 import type { RecommendedJob } from "@/lib/types";
 
-export function RecommendedClient({
+/** Recommended jobs (shown as a tab on the Jobs page). */
+export function RecommendedList({
   jobs,
   sourcesConfigured,
   matching,
@@ -27,8 +28,18 @@ export function RecommendedClient({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action }),
     });
+    const json = await res.json().catch(() => ({}));
     setBusyId(null);
-    if (res.ok) router.refresh();
+    if (!res.ok) {
+      setNotice(json.error ?? "That didn't work — please try again.");
+      return;
+    }
+    // "Add & tailor": go straight into the new job's Apply workspace.
+    if (action === "add" && json.application?.id) {
+      router.push(`/jobs/${json.application.id}`);
+      return;
+    }
+    router.refresh();
   }
 
   async function refresh() {
@@ -78,17 +89,14 @@ export function RecommendedClient({
   }
 
   return (
-    <div className="max-w-4xl space-y-6">
+    <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Recommended</h1>
-          <p className="mt-1 text-sm text-neutral-500">
-            Checked once a day. Similar roles to the ones you&apos;ve applied
-            for, searched on the sites you applied through plus the wider job
-            boards, and matched against your CV. Add the good ones to New Jobs,
-            or dismiss the rest.
-          </p>
-        </div>
+        <p className="text-sm text-neutral-500">
+          Checked once a day. Similar roles to the ones you&apos;ve applied
+          for, searched on the sites you applied through plus the wider job
+          boards, and matched against your CV. <strong>Add &amp; tailor</strong>{" "}
+          opens the job ready to apply; dismiss the rest.
+        </p>
         <button
           onClick={refresh}
           disabled={refreshing}
@@ -175,7 +183,7 @@ export function RecommendedClient({
                   disabled={busyId === j.id}
                   className="btn-primary"
                 >
-                  {busyId === j.id ? "Adding…" : "Add to New Jobs"}
+                  {busyId === j.id ? "Adding…" : "Add & tailor"}
                 </button>
                 <button
                   onClick={() => act(j.id, "dismiss")}
