@@ -95,7 +95,7 @@ function NotificationSettings({ profile }: { profile: Profile }) {
 
 /* ----------------------------- Behaviour toggles ----------------------------- */
 
-const TOGGLES: { key: keyof UserSettings; label: string; help: string }[] = [
+const TOGGLES: { key: keyof UserSettings; label: string; help: string; defaultOn?: boolean }[] = [
   {
     key: "email_summary_enabled",
     label: "AI email thread summaries",
@@ -111,13 +111,19 @@ const TOGGLES: { key: keyof UserSettings; label: string; help: string }[] = [
     label: "Send calendar invites",
     help: "Email a .ics invite (with briefs attached) when an interview is scheduled.",
   },
+  {
+    key: "auto_tailor",
+    label: "Tailor good matches in the background",
+    help: "While the Jobs page is open, generate the CV and cover letter for medium and high matches, one at a time, so they're ready when you open them. Uses AI credits.",
+    defaultOn: false,
+  },
 ];
 
 function BehaviourSettings({ profile }: { profile: Profile }) {
   const [settings, setSettings] = useState<UserSettings>(profile.settings ?? {});
 
-  async function toggle(key: keyof UserSettings) {
-    const next = { ...settings, [key]: !(settings[key] ?? true) };
+  async function toggle(key: keyof UserSettings, defaultOn: boolean) {
+    const next = { ...settings, [key]: !(settings[key] ?? defaultOn) };
     setSettings(next);
     const supabase = createClient();
     await supabase.from("profiles").update({ settings: next }).eq("id", profile.id);
@@ -131,8 +137,8 @@ function BehaviourSettings({ profile }: { profile: Profile }) {
             <input
               type="checkbox"
               className="mt-1 h-4 w-4 accent-indigo-600"
-              checked={(settings[t.key] as boolean | undefined) ?? true}
-              onChange={() => toggle(t.key)}
+              checked={(settings[t.key] as boolean | undefined) ?? (t.defaultOn ?? true)}
+              onChange={() => toggle(t.key, t.defaultOn ?? true)}
             />
             <span>
               <span className="block text-sm font-medium text-neutral-800">{t.label}</span>

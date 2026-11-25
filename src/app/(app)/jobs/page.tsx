@@ -4,7 +4,7 @@ import { sortQueue } from "@/lib/apply";
 import { anySourceConfigured } from "@/lib/jobsources";
 import { deriveQuery, matchesSearchLocation } from "@/lib/recommend";
 import { todayLocal } from "@/lib/today";
-import type { Application, Company, RecommendedJob } from "@/lib/types";
+import type { Application, Company, RecommendedJob, UserSettings } from "@/lib/types";
 import { JobsClient, type QueueRow } from "./jobs-client";
 
 export const metadata = { title: "Jobs" };
@@ -28,6 +28,8 @@ export default async function JobsPage({
     { data: all },
     { data: recs },
     matching,
+    { data: profile },
+    { data: templates },
   ] = await Promise.all([
     supabase.from("applications").select("*").eq("status", "draft").returns<Application[]>(),
     supabase.from("companies").select("*").order("sort_order").returns<Company[]>(),
@@ -43,6 +45,13 @@ export default async function JobsPage({
       .order("created_at", { ascending: false })
       .returns<RecommendedJob[]>(),
     deriveQuery(supabase, user.id),
+    supabase.from("profiles").select("settings").eq("id", user.id).maybeSingle(),
+    supabase
+      .from("cv_templates")
+      .select("id")
+      .order("is_master", { ascending: false })
+      .order("created_at")
+      .limit(1),
   ]);
 
   const queue = sortQueue(drafts ?? []);
@@ -75,6 +84,7 @@ export default async function JobsPage({
     suitability_reason: d.suitability_reason,
     job_description_text_present: !!d.job_description_text?.trim(),
     cv_ready: ready.has(d.id),
+    attach_portfolio: d.attach_portfolio,
     prior_roles: d.company_id ? priorRoles[d.company_id] ?? [] : [],
   }));
 
@@ -92,6 +102,9 @@ export default async function JobsPage({
       applicationCounts={counts}
       recommendations={(recs ?? []).filter((j) => matchesSearchLocation(j.location))}
       sourcesConfigured={anySourceConfigured()}
+      autoTailorTemplateId={
+        (profile?.settings as UserSettings | null)?.auto_tailor ? templates?.[0]?.id ?? null : null
+      }
       matching={{
         keywords: matching.keywords,
         locations: matching.locations,

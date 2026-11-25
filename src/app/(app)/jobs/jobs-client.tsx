@@ -20,6 +20,7 @@ export interface QueueRow {
   suitability_reason: string | null;
   job_description_text_present: boolean;
   cv_ready: boolean;
+  attach_portfolio: boolean;
   prior_roles: string[];
 }
 
@@ -42,6 +43,7 @@ export function JobsClient({
   recommendations,
   sourcesConfigured,
   matching,
+  autoTailorTemplateId,
 }: {
   tab: Tab;
   rows: QueueRow[];
@@ -54,8 +56,11 @@ export function JobsClient({
   recommendations: RecommendedJob[];
   sourcesConfigured: boolean;
   matching: { keywords: string[]; locations: string[]; sourceDomains: string[] };
+  /** Set when "Tailor good matches in the background" is on in Settings. */
+  autoTailorTemplateId: string | null;
 }) {
   const router = useRouter();
+  const tailoring = useAutoTailor(rows, autoTailorTemplateId);
 
   // Score any jobs without a match rating yet, once, then show the badges.
   const scoringRef = useRef(false);
@@ -136,7 +141,9 @@ export function JobsClient({
         ))}
       </nav>
 
-      {tab === "queue" && <Queue rows={rows} today={today} onBlank={() => createBlank()} />}
+      {tab === "queue" && (
+        <Queue rows={rows} today={today} tailoring={tailoring} onBlank={() => createBlank()} />
+      )}
 
       {tab === "recommended" && (
         <RecommendedList jobs={recommendations} sourcesConfigured={sourcesConfigured} matching={matching} />
@@ -154,7 +161,74 @@ export function JobsClient({
   );
 }
 
-function Queue({ rows, today, onBlank }: { rows: QueueRow[]; today: string; onBlank: () => void }) {
+type TailorState = "working" | "done" | "failed";
+
+/**
+ * Background tailoring: while this page is open, generate the CV and cover
+ * letter for medium/high matches that have a description but no CV yet.
+ * One job at a time, top of the queue first; stops if you leave the page or
+ * if a request fails for a reason that would fail again (e.g. AI limits).
+ */
+function useAutoTailor(rows: QueueRow[], templateId: string | null) {
+  const [state, setState] = useState<Record<string, TailorState>>({});
+  const tried = useRef(new Set<string>());
+  const running = useRef(false);
+  const stopped = useRef(false);
+
+  useEffect(() => {
+    stopped.current = false;
+    return () => {
+      stopped.current = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!templateId || running.current) return;
+    const todo = rows.filter(
+      (r) =>
+        !r.cv_ready &&
+        r.job_description_text_present &&
+        (r.suitability === "high" || r.suitability === "medium") &&
+        !tried.current.has(r.id)
+    );
+    if (todo.length === 0) return;
+    running.current = true;
+    (async () => {
+      for (const r of todo) {
+        if (stopped.current) break;
+        tried.current.add(r.id);
+        setState((s) => ({ ...s, [r.id]: "working" }));
+        const res = await fetch("/api/generate/cv-cover", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            application_id: r.id,
+            cv_template_id: templateId,
+            attach_portfolio: r.attach_portfolio,
+          }),
+        }).catch(() => null);
+        setState((s) => ({ ...s, [r.id]: res?.ok ? "done" : "failed" }));
+        // Limits / auth problems won't fix themselves on the next job.
+        if (!res || [401, 403, 429, 503].includes(res.status)) break;
+      }
+      running.current = false;
+    })();
+  }, [rows, templateId]);
+
+  return state;
+}
+
+function Queue({
+  rows,
+  today,
+  tailoring,
+  onBlank,
+}: {
+  rows: QueueRow[];
+  today: string;
+  tailoring: Record<string, TailorState>;
+  onBlank: () => void;
+}) {
   if (rows.length === 0) {
     return (
       <p className="text-sm text-neutral-400">
@@ -182,6 +256,7 @@ function Queue({ rows, today, onBlank }: { rows: QueueRow[]; today: string; onBl
               key={r.id}
               href={`/jobs/${r.id}`}
               className="flex items-center justify-between gap-3 px-4 py-3 text-sm hover:bg-neutral-50"
+              title={tailoring[r.id] === "failed" ? "Background tailoring didn't work for this one. Open it to generate." : undefined}
             >
               <span className="min-w-0">
                 <span className="flex flex-wrap items-center gap-2">
@@ -197,9 +272,14 @@ function Queue({ rows, today, onBlank }: { rows: QueueRow[]; today: string; onBl
                       Applied here before
                     </span>
                   )}
-                  {r.cv_ready && (
+                  {(r.cv_ready || tailoring[r.id] === "done") && (
                     <span className="rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-semibold text-green-700">
                       CV ready
+                    </span>
+                  )}
+                  {tailoring[r.id] === "working" && (
+                    <span className="animate-pulse rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
+                      Tailoring…
                     </span>
                   )}
                   {!r.job_description_text_present && (

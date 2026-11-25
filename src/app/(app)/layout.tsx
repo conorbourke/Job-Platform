@@ -19,13 +19,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (profile?.deactivated) redirect("/login?error=deactivated");
 
   return (
-    <div className="flex min-h-screen">
-      <Sidebar
-        userName={profile?.name || user.email || ""}
-      />
-      <main className="ml-56 flex-1 px-8 py-8">
-        {children}
-      </main>
+    <div className="min-h-screen md:flex">
+      <Sidebar userName={profile?.name || user.email || ""} />
+      <main className="min-w-0 flex-1 px-4 py-6 md:ml-56 md:px-8 md:py-8">{children}</main>
     </div>
   );
 }
