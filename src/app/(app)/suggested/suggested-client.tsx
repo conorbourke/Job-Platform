@@ -190,7 +190,13 @@ function UrlSubmitBar({
       setNotice(json.error ?? "Failed to create draft");
       return;
     }
-    if (!json.scraped && mode === "url") {
+    if (json.duplicate) {
+      setNotice(
+        json.application?.status === "draft"
+          ? "You've already captured this job — opened the existing draft."
+          : "You've already applied for this job — it's in the Tracker."
+      );
+    } else if (!json.scraped && mode === "url") {
       setNotice(
         "Couldn't read this page automatically (some sites, e.g. LinkedIn or Indeed, block it or need a login). A draft was created with the URL — switch to “Paste text”, copy the job posting in, and we'll pre-fill it for you."
       );
