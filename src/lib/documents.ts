@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { loadFactsBlock, QUALIFICATION_RULE } from "./facts";
 import { aiJson } from "./ai";
 import { mergeWithMaster, type CvContent } from "./cv-schema";
 import { renderHtmlToPdf } from "./pdf/render";
@@ -158,14 +159,17 @@ export async function generateCompanyBrief(
   userId: string,
   applicationId: string
 ): Promise<GeneratedDocument> {
-  const ctx = await loadAppContext(supabase, applicationId);
+  const [ctx, facts] = await Promise.all([
+    loadAppContext(supabase, applicationId),
+    loadFactsBlock(supabase, userId),
+  ]);
   const { sections } = await aiJson<{ sections: BriefSection[] }>({
     supabase,
     userId,
     feature: "company_brief",
     system:
-      'You write concise company & role briefs for a job candidate. Return JSON: {"sections":[{"heading":string,"paragraphs":[string],"bullets":[string]}]}. Sections to cover: "Company overview" (what they do, size/market position as far as can be inferred — say when you are inferring), "The role" (what the job actually involves), "Why this role fits" (angles the candidate can use), "Key things to verify" (facts to check before interview). Be specific to the provided context; do not invent precise figures.',
-    user: contextPrompt(ctx),
+      'You write concise company & role briefs for a job candidate. Return JSON: {"sections":[{"heading":string,"paragraphs":[string],"bullets":[string]}]}. Sections to cover: "Company overview" (what they do, size/market position as far as can be inferred — say when you are inferring), "The role" (what the job actually involves), "Why this role fits" (angles the candidate can use), "Key things to verify" (facts to check before interview). Be specific to the provided context; do not invent precise figures. ' + QUALIFICATION_RULE,
+    user: contextPrompt(ctx) + (facts ? `\n\n${facts}` : ""),
   });
 
   const html = briefHtml({
@@ -189,7 +193,10 @@ export async function generateInterviewPrep(
   userId: string,
   applicationId: string
 ): Promise<GeneratedDocument> {
-  const ctx = await loadAppContext(supabase, applicationId);
+  const [ctx, facts] = await Promise.all([
+    loadAppContext(supabase, applicationId),
+    loadFactsBlock(supabase, userId),
+  ]);
 
   // Include the email thread — it often contains interview specifics.
   const { data: emails } = await supabase
@@ -206,8 +213,11 @@ export async function generateInterviewPrep(
     userId,
     feature: "interview_prep",
     system:
-      'You prepare candidates for job interviews. Return JSON: {"sections":[{"heading":string,"paragraphs":[string],"bullets":[string]}]}. Sections: "Likely interview questions" (8-12, tailored to the job description), "Strong answer angles" (how to frame experience for the top 4-5 questions), "Questions to ask them" (5-6 sharp ones), "Logistics & reminders" (anything from the email thread: names, times, format).',
-    user: contextPrompt(ctx) + (thread ? `\n\nEmail thread:\n${thread}` : ""),
+      'You prepare candidates for job interviews. Return JSON: {"sections":[{"heading":string,"paragraphs":[string],"bullets":[string]}]}. Sections: "Likely interview questions" (8-12, tailored to the job description), "Strong answer angles" (how to frame experience for the top 4-5 questions), "Questions to ask them" (5-6 sharp ones), "Logistics & reminders" (anything from the email thread: names, times, format). ' + QUALIFICATION_RULE,
+    user:
+      contextPrompt(ctx) +
+      (thread ? `\n\nEmail thread:\n${thread}` : "") +
+      (facts ? `\n\n${facts}` : ""),
   });
 
   const html = briefHtml({
@@ -264,7 +274,10 @@ export async function generateCvAndCover(opts: {
   attachPortfolio: boolean;
 }): Promise<CvCoverResult> {
   const { supabase, userId, applicationId } = opts;
-  const ctx = await loadAppContext(supabase, applicationId);
+  const [ctx, facts] = await Promise.all([
+    loadAppContext(supabase, applicationId),
+    loadFactsBlock(supabase, userId),
+  ]);
 
   // Selected template (master or role template) + the master for fixed slots.
   const { data: template } = await supabase
@@ -313,6 +326,8 @@ export async function generateCvAndCover(opts: {
     feature: opts.regenerationComment ? "cv_cover_regeneration" : "cv_cover_generation",
     system: `You tailor CVs and cover letters to job descriptions. You NEVER invent employment history, employers, dates, education or qualifications the candidate does not have. You only rewrite the variable sections.
 
+${QUALIFICATION_RULE} This applies to the summary, cover letter and email alike. If the CANDIDATE FACTS say something different from a template (e.g. a qualification is finished), follow the facts.
+
 STYLE: Write in natural, human British English. Do NOT use em dashes (—) anywhere in the text; use commas, brackets or full stops instead. Avoid AI-tell phrasing.
 
 Return JSON exactly:
@@ -331,7 +346,7 @@ Return JSON exactly:
 }
 
 ${portfolioInstruction}`,
-    user: `JOB CONTEXT:\n${contextPrompt(ctx)}\n\nCANDIDATE'S SELECTED CV TEMPLATE ("${template.label}"):\n${JSON.stringify(template.content)}\n\nMASTER CV (fixed facts — companies, dates, education are immutable):\n${JSON.stringify(master.content)}\n\n${opts.userNotes ? `SPECIFIC INFORMATION FROM THE CANDIDATE TO USE: ${opts.userNotes}` : ""}${previousContext}`,
+    user: `JOB CONTEXT:\n${contextPrompt(ctx)}\n\nCANDIDATE'S SELECTED CV TEMPLATE ("${template.label}"):\n${JSON.stringify(template.content)}\n\nMASTER CV (fixed facts — companies, dates, education are immutable):\n${JSON.stringify(master.content)}\n\n${facts ? `${facts}\n\n` : ""}${opts.userNotes ? `SPECIFIC INFORMATION FROM THE CANDIDATE TO USE: ${opts.userNotes}` : ""}${previousContext}`,
   });
 
   // Strip em dashes from all AI prose so nothing reads as machine-written.

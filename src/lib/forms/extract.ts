@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { aiJson } from "../ai";
+import { loadFactsBlock, QUALIFICATION_RULE } from "../facts";
 import { fetchReadableText } from "../scrape";
 import type { Application, CvTemplate, FormAnswer, FormQuestion } from "../types";
 
@@ -58,6 +59,8 @@ export async function generateAnswers(opts: {
     .eq("is_master", true)
     .maybeSingle<CvTemplate>();
 
+  const facts = await loadFactsBlock(supabase, userId);
+
   const regenContext =
     opts.regenerationComment && opts.previousAnswers
       ? `\n\nPREVIOUS ANSWERS (user wants changes):\n${JSON.stringify(opts.previousAnswers)}\nCHANGE REQUEST: ${opts.regenerationComment}`
@@ -71,6 +74,8 @@ export async function generateAnswers(opts: {
     feature: "form_answers",
     system: `You complete job application forms on behalf of a candidate. Answer ONLY from the candidate's real CV data and notes provided — never invent employment history, qualifications, references, ID numbers, or personal data you don't have. If a question needs information you don't have (e.g. National Insurance number, referee contact details), answer with a clearly-bracketed placeholder like "[TO FILL: National Insurance number]" and set confidence low.
 
+${QUALIFICATION_RULE} If the CANDIDATE FACTS conflict with the CV, follow the facts.
+
 Return JSON {"answers":[{"id":string,"answer":string,"confidence":number}]} — one entry per question id, in the same order. Answers should be concise and form-appropriate (single line for short fields, a paragraph for "why do you want this role" style questions). UK English. confidence 0-1 reflects how well-grounded the answer is in the provided data.`,
     user: `QUESTIONS:\n${JSON.stringify(opts.questions)}\n\nJOB:\n${[
       `Title: ${opts.application.job_title}`,
@@ -82,7 +87,7 @@ Return JSON {"answers":[{"id":string,"answer":string,"confidence":number}]} — 
       .filter(Boolean)
       .join("\n")}\n\nCANDIDATE CV (structured):\n${JSON.stringify(master?.content ?? {})}\n${
       opts.userNotes ? `\nCANDIDATE NOTES: ${opts.userNotes}` : ""
-    }${regenContext}`,
+    }${facts ? `\n\n${facts}` : ""}${regenContext}`,
   });
 
   // Guarantee one answer per question, aligned by id.
