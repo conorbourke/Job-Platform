@@ -44,6 +44,7 @@ export interface UserSettings {
   auto_briefs_on_schedule?: boolean; // default true
   ics_enabled?: boolean; // default true
   auto_tailor?: boolean; // default false: pre-generate CVs for good matches on the Jobs page
+  ai_facts?: string; // "always true" facts about you, given to every AI prompt that writes about you
   default_sort?: "standard" | "newest";
 }
 

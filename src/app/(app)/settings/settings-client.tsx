@@ -24,6 +24,7 @@ export function SettingsClient({
   return (
     <div className="max-w-3xl space-y-6">
       <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+      <FactsSettings profile={profile} />
       <NotificationSettings profile={profile} />
       <BehaviourSettings profile={profile} />
       <CompanyImport maxCompanies={platform.max_companies} />
@@ -50,6 +51,67 @@ function Section({
       {description && <p className="mt-1 text-sm text-neutral-500">{description}</p>}
       <div className="mt-4">{children}</div>
     </section>
+  );
+}
+
+/**
+ * Save part of profile.settings, merged with what's stored now so separate
+ * sections (toggles, facts) never overwrite each other's changes.
+ */
+async function saveSettingsPatch(profileId: string, patch: Partial<UserSettings>) {
+  const supabase = createClient();
+  const { data } = await supabase.from("profiles").select("settings").eq("id", profileId).single();
+  const next = { ...((data?.settings as UserSettings | null) ?? {}), ...patch };
+  const { error } = await supabase.from("profiles").update({ settings: next }).eq("id", profileId);
+  return !error;
+}
+
+/* ------------------------------ Facts about me ------------------------------ */
+
+const FACTS_MAX = 2000;
+
+function FactsSettings({ profile }: { profile: Profile }) {
+  const [facts, setFacts] = useState(profile.settings?.ai_facts ?? "");
+  const saved = useRef(profile.settings?.ai_facts ?? "");
+  const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+
+  async function save() {
+    const value = facts.trim();
+    if (value === saved.current.trim()) return;
+    setState("saving");
+    const ok = await saveSettingsPatch(profile.id, { ai_facts: value });
+    if (ok) saved.current = value;
+    setState(ok ? "saved" : "error");
+  }
+
+  return (
+    <Section
+      title="Facts the AI must always get right"
+      description="Given to the AI every time it writes your CV, cover letter, email, form answers or interview prep. These win over anything in your templates."
+    >
+      <textarea
+        className="input min-h-[7rem]"
+        maxLength={FACTS_MAX}
+        placeholder={"One fact per line, e.g.\nDegree completed with First Class Honours (not ongoing).\nFull UK driving licence."}
+        value={facts}
+        onChange={(e) => {
+          setFacts(e.target.value);
+          setState("idle");
+        }}
+        onBlur={save}
+      />
+      <p className="mt-1 flex justify-between text-xs text-neutral-400">
+        <span>
+          {state === "saving" && "Saving…"}
+          {state === "saved" && "Saved"}
+          {state === "error" && <span className="text-red-600">Couldn&apos;t save, try again</span>}
+          {state === "idle" && "Saves when you click away."}
+        </span>
+        <span>
+          {facts.length}/{FACTS_MAX}
+        </span>
+      </p>
+    </Section>
   );
 }
 
@@ -123,10 +185,9 @@ function BehaviourSettings({ profile }: { profile: Profile }) {
   const [settings, setSettings] = useState<UserSettings>(profile.settings ?? {});
 
   async function toggle(key: keyof UserSettings, defaultOn: boolean) {
-    const next = { ...settings, [key]: !(settings[key] ?? defaultOn) };
-    setSettings(next);
-    const supabase = createClient();
-    await supabase.from("profiles").update({ settings: next }).eq("id", profile.id);
+    const value = !(settings[key] ?? defaultOn);
+    setSettings({ ...settings, [key]: value });
+    await saveSettingsPatch(profile.id, { [key]: value });
   }
 
   return (
