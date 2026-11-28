@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { EMPTY_CV, mergeWithMaster, type CvContent } from "@/lib/cv-schema";
 import type { CoverTemplate, CvTemplate } from "@/lib/types";
@@ -327,13 +327,9 @@ function TemplateEditor({
                   </div>
                   <div className="mt-3">
                     <label className="label">Responsibilities (one per line)</label>
-                    <textarea className="input min-h-20"
-                      value={exp.responsibilities.join("\n")}
-                      onChange={(e) =>
-                        setExp(i, {
-                          responsibilities: e.target.value.split("\n").filter((l) => l.trim()),
-                        })
-                      } />
+                    <LinesTextarea
+                      lines={exp.responsibilities}
+                      onChange={(responsibilities) => setExp(i, { responsibilities })} />
                   </div>
                   {isMaster && (
                     <button
@@ -352,10 +348,9 @@ function TemplateEditor({
 
           <div>
             <label className="label">Licenses & qualifications (one per line)</label>
-            <textarea className="input min-h-20" value={cv.licenses.join("\n")}
-              onChange={(e) =>
-                setCv({ ...cv, licenses: e.target.value.split("\n").filter((l) => l.trim()) })
-              } />
+            <LinesTextarea
+              lines={cv.licenses}
+              onChange={(licenses) => setCv({ ...cv, licenses })} />
           </div>
 
           {/* Education */}
@@ -379,7 +374,7 @@ function TemplateEditor({
             {isMaster ? (
               <div className="space-y-2">
                 {cv.education.map((ed, i) => (
-                  <div key={i} className="grid gap-2 sm:grid-cols-[1fr_1fr_8rem_auto]">
+                  <div key={i} className="grid gap-2 sm:grid-cols-[1fr_1fr_11rem_auto]">
                     <input className="input" placeholder="Qualification" value={ed.qualification}
                       onChange={(e) =>
                         setCv({
@@ -518,5 +513,43 @@ Yours sincerely,`
         {saved ? "Saved ✓" : "Save cover template"}
       </button>
     </section>
+  );
+}
+
+/** Text → list of non-empty lines (what gets saved). */
+function toLines(text: string): string[] {
+  return text.split("\n").filter((l) => l.trim());
+}
+
+/**
+ * A "one per line" box. It keeps exactly what you type (so Enter makes a new,
+ * empty line you can type into) and only drops blank lines from the saved list.
+ */
+function LinesTextarea({
+  lines,
+  onChange,
+}: {
+  lines: string[];
+  onChange: (lines: string[]) => void;
+}) {
+  const [text, setText] = useState(lines.join("\n"));
+
+  // If the list changes from outside (e.g. switching template), show it.
+  useEffect(() => {
+    setText((current) =>
+      toLines(current).join("\n") === lines.join("\n") ? current : lines.join("\n")
+    );
+  }, [lines]);
+
+  return (
+    <textarea
+      className="input min-h-20"
+      value={text}
+      onChange={(e) => {
+        setText(e.target.value);
+        onChange(toLines(e.target.value));
+      }}
+      onBlur={() => setText(lines.join("\n"))}
+    />
   );
 }
